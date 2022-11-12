@@ -1,0 +1,517 @@
+---
+title: \vspace{-1.5cm} Analyzing Voter Registration in the 2016 Presidential Election
+author: "Andrew Amore"
+date: "2022-11-21"
+output: pdf_document
+urlcolor: blue
+# fontsize: 11pt
+geometry: "left=2cm,right=2cm,top=1.5cm,bottom=1.5cm"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.align = "center")
+library(tidyverse)
+library(rstan)
+library(brms)
+library(ggmcmc)
+library(ggthemes)
+library(ggridges)
+library(bayesplot)
+library(tidybayes)
+library(coda)
+library(arm)
+library(ggpubr)     # panel plotting
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+```{r, data-load-and-clean}
+## CENSUS DATA ##
+census = read.table(file="./data/Census2010_long.txt", header = TRUE)
+
+# clean data
+## combine NativeHawaiianOrOtherPacificIslanderAlone and SomeOtherRaceAlone to match voter_stats
+census = census %>% 
+  filter(Race %in% c("NativeHawaiianOrOtherPacificIslanderAlone", "SomeOtherRaceAlone")) %>%
+  group_by(Geography, Age, Gender, Hispanic) %>% 
+  summarise(freq_sum = sum(Freq)) %>% 
+  mutate(Race = "SomeOtherRaceAlone") %>% 
+  inner_join(census, by= c("Geography")) %>%
+  distinct(Geography, Age.x, Gender.x, Hispanic.x, Race.x, freq_sum, TotalCountyPopulation) %>%
+  rename("Age" = "Age.x", "Gender" = "Gender.x", "Hispanic" = "Hispanic.x", "Race" = "Race.x", "Freq" = "freq_sum") %>%
+  relocate(Freq, .after = Race) %>%
+  union(census %>% filter(!Race %in% c("NativeHawaiianOrOtherPacificIslanderAlone", "SomeOtherRaceAlone"))) %>%
+  ungroup()
+
+## VOTER REGISTRATION DATA ##
+voter_stats = read.table(file="./data/voter_stats_20161108.txt", header = TRUE, na.strings=c("", " ", NA))
+## democrat, libertarian, republican, unaffiliated
+
+# clean data
+voter_stats = voter_stats %>% 
+  # reformat age to match
+  mutate(Age = case_when(
+    age == "Age 18 - 25" ~ "18-25",
+    age == "Age 26 - 40" ~ "26-40",
+    age == "Age 41 - 65" ~ "41-65",
+    TRUE ~ "66+")) %>%
+  # rename county to match
+  rename("Geography" = "county_desc") %>%
+  # reformat ethnicity
+  mutate(Hispanic = case_when(
+    ethnic_code == "NL" ~ "NotHispanic",
+    ethnic_code == "HL" ~ "Hispanic",
+    TRUE ~ "Undesignated")) %>%
+  ## one unmatched field between sources (NativeHawaiianOrOtherPacificIslanderAlone)
+  mutate(Race = case_when(
+    race_code == "W" ~ "WhiteAlone",
+    race_code == "B" ~ "BlackAlone",
+    race_code == "O" ~ "SomeOtherRaceAlone",
+    race_code == "U" ~ "Undesignated",
+    race_code == "I" ~ "AmericanIndianOrAlaskaNativeAlone",
+    race_code == "A" ~ "AsianAlone",
+    race_code == "M" ~ "TwoOrMoreRaces",
+    TRUE ~ "Undesignated")) %>%
+  ## one unmatched field (U)
+  mutate(Gender = case_when(
+    sex_code == "F" ~ "Female",
+    sex_code == "M" ~ "Male",
+    TRUE ~ "Unknown")) %>% 
+  dplyr::select(-age, -ethnic_code, -race_code, -sex_code) %>%
+  ## aggregate by county
+  group_by(Geography, party_cd, Age, Gender, Hispanic, Race) %>%
+  summarise(VoterFreq = sum(total_voters)) %>%
+  ungroup()
+
+## PARTY NUMBERS ##
+### this probably isn'r relevant as it looks to contain the same information as the
+### voter stats file
+party_df = read.table(file="./data/party_count.txt", skip = 5, sep = ",", 
+                      col.names = c("county", "democrat", "republican", "green", 
+                                    "constitution", "libertarian", "unaffiliated",
+                                    "white", "black", "american indian", "native hawaiian",
+                                    "other", "hispanic", "male", "female", "total"))
+## subset to only relevant party counts, pivot and adjust values to match
+party_df = party_df %>%
+   dplyr::select(county, democrat, republican, libertarian, unaffiliated) %>%
+  pivot_longer(!county, names_to = "party", values_to = "party_cnt") %>%
+  mutate(party_cd = case_when(
+    party == "democrat" ~ "DEM",
+    party == "republican" ~ "REP",
+    party == "libertarian" ~ "LIB",
+    TRUE ~ "UNA"
+  )) %>%
+  dplyr::select(-party) %>%
+  relocate(party_cd, .before=party_cnt)
+```
+
+## Abstract
+To investigate demographic trends in voter registration rates across North Carolina,
+historical voter registration information from 2016 and U.S. Census estimates
+from 2010 were analyzed. To facilitate the analysis, datasets were standardized
+with matching field codes and combined into a holistic view for modeling. Several
+Bayesian hierarchical strategies were assessed with different multilevel structures
+and evaluated based on **metric XXX, YYY**.
+
+The final model indicates...
+
+<!-- more here once completed... -->
+
+<!-- ## Analysis -->
+
+**Introduction**  
+Political campaigns analyze historical election data to understand how different
+demographic groups register to vote, specifically during presidential election 
+years, where voters are more likely to show up at the polls. This information
+can be used to determine optimal locations for advertising campaigns
+than can sway opinions, drum up more votes and even win elections.
+Campaigns are most interested in assessing how different demographic groups 
+register to vote and how registration odds vary by county, gender, age and party
+affiliation.
+
+**Dataset Overview**  
+To address the main concerns, two data sources were analyzed. Information from the
+[2010 U.S. Census](https://www.census.gov/data.html) was collected from the Federal
+Census Bureau website and combined with [2016 voter registration](https://vt.ncsbe.gov/)
+from North Carolina. To join datasets, field codes were standardized, as the Census
+Bureau uses slightly different coding than the North Carolina State Agency for 
+demographic categories. Census data only quantifies male/female genders and entries
+in the voter registration file with unspecified gender were removed. Irrelevant 
+fields denoting precinct locations were also removed. Metadata information for the
+combined dataset, with a sample observation, can be viewed in Table 1.
+
+```{r, show-metadata, include=TRUE, fig.height=3.5}
+## ignore U issue and just inner join (drop the U out)
+model_df = voter_stats %>% 
+  inner_join(census)
+
+# compute features
+## factorize
+model_df$Age = as.factor(model_df$Age)
+model_df$Gender = as.factor(model_df$Gender)
+model_df$Hispanic = as.factor(model_df$Hispanic)
+model_df$Race = as.factor(model_df$Race)
+model_df$PartyCd = as.factor(model_df$party_cd)
+model_df = model_df %>% dplyr::select(-party_cd)
+
+## several instances where voter_freq > than CensusFreq...people either travel to polls or 2010 census data doesn't reflect population at 2016 election
+model_df$VoterTurnout = model_df$VoterFreq/model_df$TotalCountyPopulation
+model_df = model_df %>% filter(Freq > 0)
+
+set.seed(777)
+options(scipen=999)
+options(digits = 3)
+sample = model_df %>% slice_sample(n=1)
+
+tbl_df = data.frame(
+    Column.Names = colnames(model_df),
+    Column.Description = c(
+      "County in North Carolina",
+      "Age Demographic Category",
+      "Gender Demographic Category",
+      "Demographic Indicator of Hispanic Origin",
+      "Race Demographic Category",
+      "Number of Registered Voters",
+      "Total Population Count for Specified Categories",
+      "Total County Population",
+      "Political Party Affiliation",
+      "Registration Percentage (VoterFreq/TotalCountyPopulation)"
+    ),
+    Sample = t(sample)
+)
+
+ggtexttable(tbl_df, rows=NULL, cols = c("Field Name", "Description", "Sample"),
+                  theme=ttheme("classic", base_size = 9, padding=unit(c(5,5), "mm"))) %>%
+  table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 1, face = "bold", size = 8) %>%
+  table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 2, face = "italic", size = 8) %>%
+  table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 3, face = "italic", size = 8) %>%
+  tab_add_title(text = "Table 1: Metadata Information", size = 9, face = "plain",
+                padding=unit(c(1,0), "mm"))
+```
+
+**Data Issues & Subsetting for Analysis**  
+An assumption of this analysis is that population numbers from 2010 are representative 
+of 2016. Inspecting the combined dataset, there are numerous instances where the 
+number of registered voters is greater than the total population for a demographic
+category (see Table 2). Voters may register outside of their residence county, 
+however, a more plausible explanation is that the Census information is dated.
+
+```{r, population-sample, include=TRUE, fig.height=1.5}
+set.seed(7324)
+options(scipen=999)
+options(digits = 3)
+sample = model_df %>% 
+  filter(VoterFreq > Freq) %>% 
+  slice_sample(n=4) %>% 
+  dplyr::select(-TotalCountyPopulation, -VoterTurnout)
+
+ggtexttable(sample, rows=NULL,
+                  theme=ttheme("classic", base_size = 9, padding=unit(c(3.5,3.5), "mm"))) %>%
+  table_cell_bg(row = 2:(nrow(sample) + 1), column=6, linewidth = 1, fill="#FF9999", color = "black") %>%
+  table_cell_bg(row = 2:(nrow(sample) + 1), column=7, linewidth = 1, fill="#FF9999", color = "black") %>%
+  tab_add_title(text = "Table 2: Bad Data Sample", size = 9, face = "plain",
+                padding=unit(c(1,1), "mm"))
+```
+
+In addition, the aggregate dataset contains too much information to analyze at once.
+To address computation concerns, 30 counties were randomly drawn using sampling weights
+inversely proportional to the percentage of observations where the number of registered
+voters (VoterFreq) is greater than the total demographic population (Freq).
+
+
+```{r, sample-counties-modeling-df}
+## use 1-bad_data_percent as sampling weight for county selection
+weights = 1 - (model_df %>% group_by(Geography) %>% count() %>% inner_join(model_df) %>% filter(VoterFreq > Freq) %>% group_by(Geography, n) %>% count() %>% arrange(n) %>% mutate(bad_data_percent = nn/n))$bad_data_percent
+
+counties = (model_df %>% group_by(Geography) %>% count() %>% inner_join(model_df) %>% filter(VoterFreq > Freq) %>% group_by(Geography, n) %>% count() %>% arrange(n) %>% mutate(bad_data_percent = nn/n))$Geography
+
+## sample 
+set.seed(1235)
+samp = sample(counties, 30, replace = FALSE, prob = weights)
+
+## for these voter_freq, set voter_freq = Freq (could also drop these records out)
+model_df = model_df  %>%
+  mutate(VoterFreq = case_when(
+    VoterFreq >= Freq ~ (Freq - as.integer(1)),
+    TRUE ~ VoterFreq))
+
+## filter to relevant fields
+model_df = model_df %>% 
+  filter(Geography %in% samp)
+```
+
+
+**Motivating the Model**  
+An exploratory data analysis (EDA) was conducted to evaluate modeling decisions,
+like where to apply random effects. Figure 1 displays voter registration trends 
+for three counties (color coded) and two demographic categories. The left plot fits 
+regressions by county & age group, while the right fits identical data by county & 
+race. Notice the differences in linear fits between the two plots suggesting
+voter behavior is similar across race, but varies significantly across age groups. 
+Plots for remaining covariates can be viewed in the Appendix. In addition
+to age, party affiliation showed similar variation between categories, but other
+covariates displayed consistent trends.
+
+```{r, include=TRUE, fig.cap="Voter Registration Behavior", fig.height=4}
+# ggplot(data=model_df %>% filter(Geography %in% c("WAKE", "MECKLENBURG", "BUNCOMBE")),
+p1 = ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
+       aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, Age))) +
+  geom_point(size = 1.2, alpha=.9) + 
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
+  theme(legend.position="bottom", panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  labs(subtitle = "Age") + 
+  ylab("Registered Voters") + xlab("Total Demographic Population")
+## by race
+p2 = ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
+       aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, Race))) +
+  geom_point(size = 1.2, alpha=.9) + 
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1), 
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        legend.position = "none") +
+  labs(subtitle = "Race") + 
+  ylab("Registered Voters") + xlab("Total Demographic Population")
+plot = ggarrange(p1, p2, ncol=2, nrow=1, common.legend = TRUE, legend="bottom", 
+                 widths = c(1.05,0.95))
+annotate_figure(plot, top = text_grob("Voter Registration vs. Demographic Population"
+                                      , face = "bold", size = 13))
+```
+
+
+**Model Specification**  
+The modeling framework can be specified as follows. Let $n_{ijk}, p_{ijk}$
+denote the total demographic population and probability of voter registration for
+voters in county $i$, age group $j$ and remaining covariate indicator combination 
+$k$ respectively. We assume the number of voters registering to vote, 
+$n_{voters, \{i,j,k\}}$, is distributed as a binomial random variable. 
+$$n_{voters, \{i,j,k\}} \sim Binomial(n_{ijk}, p_{ijk})$$
+Binomial trials assume replacement, but voters can only register once. This 
+simplifying assumption seems reasonable as most demographic categories have
+large populations ($n_{ijk}>30$). A more realistic model could assume a 
+hypergeometric distribution to account for smaller population sizes, but this 
+induces additional computation complexity and was avoided. Several multilevel 
+models with binomial distributions were assessed (Table 3). The EDA suggests variation
+across counties, age groups and political affiliations, but how does this 
+covariance structure affect coefficient estimates?
+
+```{r, random-effect structure, include=TRUE, fig.height=2}
+tbl_df = data.frame(
+    Fixed.Effects = c(rep("Gender, Hispanic, Race, PartyCd, Age", 3)),
+    Random.Intercept = c(rep("Geography", 3)),
+    Random.Slope = c("", "Age", "Age, PartyCd")
+)
+
+ggtexttable(tbl_df, rows=c("Model I ", "Model II ", "Model III "), 
+            cols = c("Fixed Effect Fields", "Random Intercept Fields", "Random Slope Fields"),
+                  theme=ttheme("classic", base_size = 9, padding=unit(c(5,5), "mm"))) %>%
+  # table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 1, face = "bold", size = 6.5) %>%
+  # table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 2, face = "italic", size = 6.5) %>%
+  # table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 3, face = "italic", size = 6.5) %>%
+  tab_add_title(text = "Table 3: Random Effect Structures", size = 9, face = "plain",
+                padding=unit(c(1,0), "mm"))
+```
+
+
+**Model I**  
+Let $\mu$ denote a global intercept, $\theta_{i}$ a **county** random effect
+intercept for observations in county $i$, $X_k,[ij]$ a vector of demographic indicator
+variables (gender, ethnicity, race, party affiliation and age) and $\beta$ the 
+corresponding fixed effect estimates.
+
+$$Logit(p_{ijk})) = \mu + \theta_{i} + X_{k,[ij]}\beta$$
+<!-- specify priors-->
+$$\mu \sim N\left(0,1\right), \ \beta \sim N\left(0, 1\right), \ \theta_{i} \sim N\left(0, \sigma\right)$$
+$$\sigma \sim HalfCauchy\left(0, \frac{1}{2}\right)$$
+
+```{r, fit-model-1}
+m1 = brm(data = model_df, family = "binomial",
+      VoterFreq | trials(Freq) ~ 1 + Gender + Hispanic + Race + PartyCd + Age + (1 | Geography),
+      prior = c(prior(normal(0, 1), class = "Intercept"),
+                prior(normal(0, 1), class = "b"),  ## class b denotes population (fixed) effects
+                prior(cauchy(0, 0.5), class = "sd")  ## group effects
+                ),
+      file = "models/m1.rds",
+      iter = 2500, 
+      warmup = 500,
+      chains = 4)
+summary(m1)
+```
+
+**Model II**  
+Model II is an extension of I with a new random effect for **Age**. Let $a_{ij,[k]}$ 
+denote the age category, $j$, for observations in county $i$ and $\Gamma_{ij}$ the random effect
+slope. Other variables remain the same.
+
+$$Logit(p_{ijk})) = \mu +  \theta_{i} + a_{ij, [k]}\Gamma_{ij} + X_{k,[ij]}\beta$$
+<!-- specify priors -->
+$$\Gamma_{ij} \sim N\left(0, \gamma\right), \ \gamma \sim HalfCauchy\left(0, \frac{1}{2}\right)$$
+
+```{r, fit-model-2}
+m2 = brm(data = model_df, family = "binomial",
+      VoterFreq | trials(Freq) ~ 1 + Gender + Hispanic + Race + PartyCd + Age + (1 + Age | Geography),
+      prior = c(prior(normal(0, 1), class = "Intercept"),
+                prior(normal(0, 1), class = "b"),  ## class b denotes population effects
+                prior(cauchy(0, 0.5), class = "sd")  ## group effects
+                ),
+      file = "models/m2_logistic_regression_party_cd.rds",
+      iter = 2500, 
+      warmup = 500,
+      chains = 4)
+
+m2
+```
+
+**Model III**  
+An extension of II with an additional random effect for **party affiliation**.
+Let $q_{il,[jk]}$ denote the party, $l$, for observations in county $i$ and 
+$\Omega_{il}$ the random effect slope. Other variables remain identical.
+
+
+$$Logit(p_{ijlk})) = \theta_{i} + a_{ij, [k]}\Gamma_{ij} + q_{il,[jk]}\Omega_{il} + X_{k,[i,j]}\beta$$
+<!-- specify priors -->
+$$\Omega_{il} \sim N\left(0, \omega\right), \ \omega \sim HalfCauchy\left(0, \frac{1}{2}\right)$$
+
+```{r, fit-model}
+m3 = brm(data = model_df, family = "binomial",
+      VoterFreq | trials(Freq) ~ 1 + Gender + Hispanic + Race + PartyCd + Age + (1 + Age + PartyCd | Geography),
+      prior = c(prior(normal(0, 1), class = "Intercept"),
+                prior(normal(0, 1), class = "b"),  ## class b denotes population effects
+                prior(cauchy(0, 0.5), class = "sd")  ## group effects
+                ),
+      file = "models/m3_logistic_regression_age_party_cd_slope.rds",
+      iter = 3000, 
+      warmup = 500,
+      chains = 4)
+m3
+```
+
+
+**Assessing Model Fit & Comparing Models**
+
+
+
+```{r, trace-plots}
+
+```
+
+
+
+```{r}
+
+```
+
+
+**Analysis**  
+
+<!-- How did different demographic subgroups register to vote in the 2016 elections? For example, how did the registration rate for males compare to the registration rate for females after controlling for other potential predictors? -->
+
+```{r}
+## replicate plots on the slide comparing male/female
+# library(wesanderson)
+# library(dutchmasters)
+
+## slides use a "case" number to plot performance...I have too many cases to do this
+
+p = predict(m1) %>% 
+  as_tibble() %>% bind_cols(model_df)
+
+## for each model how many estimates fall inside the CR
+
+
+# d_text <-
+#   model_df %>%
+#   group_by(Geography, Age, Gender, Hispanic, Race, PartyCd) %>%
+#   summarise(case  = mean(as.numeric(case)),
+#             admit = mean(admit / applications) + .05)
+# 
+# ggplot(data = d, aes(x = case, y = admit / applications)) +
+#   geom_pointrange(data = p, 
+#                   aes(y    = Estimate / applications,
+#                       ymin = Q2.5     / applications ,
+#                       ymax = Q97.5    / applications),
+#                   color = wes_palette("Moonrise2")[1],
+#                   shape = 1, alpha = 1/3) +
+#   geom_point(color = wes_palette("Moonrise2")[2]) +
+#   geom_line(aes(group = dept),
+#             color = wes_palette("Moonrise2")[2]) +
+#   geom_text(data = d_text,
+#             aes(y = admit, label = dept),
+#             color = wes_palette("Moonrise2")[2],
+#             family = "serif") +
+#   coord_cartesian(ylim = 0:1) +
+#   labs(y     = "Proportion admitted",
+#        title = "Posterior validation check") +
+#   theme(axis.ticks.x = element_blank())
+```
+
+
+
+<!-- Did the overall probability or odds of registering to vote differ by county in 2016? Which counties differ the most from other counties? -->
+
+<!-- How did the registration rates differ between females and males for the different party affiliations? -->
+
+<!-- How did the registration rates differ between age groups for the different party affiliations? -->
+
+
+**Predictive Performance**  
+
+```{r}
+## nice to have...
+p = predict(m1) %>% 
+  as_tibble() %>% bind_cols(model_df)
+
+## for each model how many estimates fall inside the CR
+```
+
+
+
+**Conclusion**  
+
+
+\newpage
+
+## Appendix
+
+```{r, additional-covariate-plots, include=TRUE}
+ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
+       aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, Gender))) +
+  geom_point(size = 1.2, alpha=.9) + 
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        legend.position = "none") +
+  labs(subtitle = "Color by Geography & Fit by Gender") + 
+  ylab("Registered Voters") + xlab("Total Demographic Population")
+
+ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
+       aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, Hispanic))) +
+  geom_point(size = 1.2, alpha=.9) + 
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1), legend.position = "none") +
+  labs(subtitle = "Color by Geography & Fit by Hispanic") + 
+  ylab("Registered Voters") + xlab("Total Demographic Population")
+
+ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
+       aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, PartyCd))) +
+  geom_point(size = 1.2, alpha=.9) + 
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1), legend.position = "none") +
+  labs(subtitle = "Color by Geography & Fit by Political Party") + 
+  ylab("Registered Voters") + xlab("Total Demographic Population")
+```
+
+
+
+
