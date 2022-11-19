@@ -1,15 +1,27 @@
 ---
-title: \vspace{-1.5cm} Analyzing Voter Registration in the 2016 Presidential Election
-author: "Andrew Amore"
-date: "2022-11-21"
+title: |
+  | \vspace{-1.3cm} \textbf{Analyzing Voter Registration in the 2016 Presidential Election} \vspace{-0.5cm}
+author: Andrew Amore 
+date: |
+  | \vspace{-0.6cm} \small 2022-11-21
 output: pdf_document
 urlcolor: blue
-# fontsize: 11pt
+fontsize: 11pt
 geometry: "left=2cm,right=2cm,top=1.5cm,bottom=1.5cm"
+subparagraph: yes
+header-includes: |
+  \usepackage{titlesec}
+  \titlespacing{\title}{0pt}{\parskip}{-\parskip}
+  \titlespacing{\section}{0pt}{12pt plus 2pt minus 1pt}{0pt plus 1pt minus 1pt}
+  \titlespacing{\subsection}{0pt}{12pt plus 2pt minus 1pt}{0pt plus 1pt minus 1pt}
+  \titlespacing{\subsubsection}{0pt}{12pt plus 2pt minus 1pt}{0pt plus 1pt minus 1pt}
 ---
 
+\vspace{-1.1cm}
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.align = "center")
+knitr::opts_chunk$set(echo = TRUE, include=FALSE, echo=FALSE, warning=FALSE, 
+                      message=FALSE, fig.align = "center")
 library(tidyverse)
 library(rstan)
 library(brms)
@@ -106,40 +118,42 @@ party_df = party_df %>%
   relocate(party_cd, .before=party_cnt)
 ```
 
-## Abstract
-To investigate demographic trends in voter registration rates across North Carolina,
-historical voter registration information from 2016 and U.S. Census estimates
-from 2010 were analyzed. To facilitate the analysis, datasets were standardized
-with matching field codes and combined into a holistic view for modeling. Several
-Bayesian hierarchical strategies were assessed with different multilevel structures
-and evaluated based on **metric XXX, YYY**.
+## *Abstract*
+*Political candidates are often interested in understanding factors influencing
+voter registration rates across different demographic categories and how they 
+effect overall registration probability. Understanding these aspects can better 
+inform campaign staffs on election related decisions, like where to focus limited
+advertising budgets.*
 
-The final model indicates...
-
+*To conduct an analysis, official voter registration records and census population 
+estimates for counties in North Carolina were collected and analyzed using Bayesian
+hierarchical modeling strategies to better quantify estimate uncertainty across 
+different geographies. The final model indicates...*
 <!-- more here once completed... -->
 
-<!-- ## Analysis -->
+## Analysis
 
 **Introduction**  
 Political campaigns analyze historical election data to understand how different
-demographic groups register to vote, specifically during presidential election 
-years, where voters are more likely to show up at the polls. This information
-can be used to determine optimal locations for advertising campaigns
-than can sway opinions, drum up more votes and even win elections.
-Campaigns are most interested in assessing how different demographic groups 
-register to vote and how registration odds vary by county, gender, age and party
+demographic groups register to vote, specifically during presidential election
+years when individuals are more likely to vote. This information can inform optimal 
+advertising strategies, which can drum up more votes and win elections. Campaigns
+are generally interested in assessing registration differences amongst demographic
+groups and how registration tendencies vary by county, gender, age and party
 affiliation.
 
 **Dataset Overview**  
-To address the main concerns, two data sources were analyzed. Information from the
-[2010 U.S. Census](https://www.census.gov/data.html) was collected from the Federal
-Census Bureau website and combined with [2016 voter registration](https://vt.ncsbe.gov/)
-from North Carolina. To join datasets, field codes were standardized, as the Census
-Bureau uses slightly different coding than the North Carolina State Agency for 
-demographic categories. Census data only quantifies male/female genders and entries
-in the voter registration file with unspecified gender were removed. Irrelevant 
-fields denoting precinct locations were also removed. Metadata information for the
-combined dataset, with a sample observation, can be viewed in Table 1.
+To address the main questions of interest, two data sources were analyzed. 
+Information from the [2010 U.S. Census](https://www.census.gov/data.html) was 
+collected from the Federal Census Bureau website and enhanced with official
+[2016 voter registration](https://vt.ncsbe.gov/) records from North Carolina. To 
+combine the data, demographic field values were standardized, as the coding structure
+varies slightly between State and Federal agencies. Field values without a corresponding
+match were dropped from the analysis. For example, Census estimates quantify
+two genders (male/female) while registration records include a third unknown 
+category. Irrelevant registration fields denoting precinct location were also
+removed. Metadata information for the combined dataset and a sample observation, 
+can be viewed in Table 1.
 
 ```{r, show-metadata, include=TRUE, fig.height=3.5}
 ## ignore U issue and just inner join (drop the U out)
@@ -176,7 +190,7 @@ tbl_df = data.frame(
       "Total Population Count for Specified Categories",
       "Total County Population",
       "Political Party Affiliation",
-      "Registration Percentage (VoterFreq/TotalCountyPopulation)"
+      "County Registration Percentage"
     ),
     Sample = t(sample)
 )
@@ -190,20 +204,20 @@ ggtexttable(tbl_df, rows=NULL, cols = c("Field Name", "Description", "Sample"),
                 padding=unit(c(1,0), "mm"))
 ```
 
-**Data Issues & Subsetting for Analysis**  
-An assumption of this analysis is that population numbers from 2010 are representative 
-of 2016. Inspecting the combined dataset, there are numerous instances where the 
-number of registered voters is greater than the total population for a demographic
-category (see Table 2). Voters may register outside of their residence county, 
-however, a more plausible explanation is that the Census information is dated.
+**Population Migration**  
+The 2010 Census is assumed to represent the voter population during the 2016 
+election, however, almost 10% of observations have more registered voters than
+the demographic population estimates from the Census. Both examples in Table 2 
+have relatively small differences, but the large number of effected observations
+warrant additional exploration.
 
-```{r, population-sample, include=TRUE, fig.height=1.5}
+```{r, population-sample, include=TRUE, fig.height=0.9}
 set.seed(7324)
 options(scipen=999)
 options(digits = 3)
 sample = model_df %>% 
   filter(VoterFreq > Freq) %>% 
-  slice_sample(n=4) %>% 
+  slice_sample(n=2) %>% 
   dplyr::select(-TotalCountyPopulation, -VoterTurnout)
 
 ggtexttable(sample, rows=NULL,
@@ -214,10 +228,49 @@ ggtexttable(sample, rows=NULL,
                 padding=unit(c(1,1), "mm"))
 ```
 
-In addition, the aggregate dataset contains too much information to analyze at once.
-To address computation concerns, 30 counties were randomly drawn using sampling weights
-inversely proportional to the percentage of observations where the number of registered
-voters (VoterFreq) is greater than the total demographic population (Freq).
+Figure 1 displays county summaries for the difference between registered voters 
+and demographic population. Several counties have large differences, defined as 
+100 or more individuals, which may indicate significant population migration.
+It's plausible that the 2010 Census incorrectly reflects population densities in
+2016, however, the majority of average county differences are less than 50, which
+is relatively small. To address this concern, 30 counties were randomly drawn from
+the 90 county population using sampling weights inversely proportional to the 
+percentage of "incorrect" observations (registered voters > demographic population).
+This sub-sampling strategy also reduces computational overhead for an MCMC sampler
+in Bayesian models.
+
+```{r, bad-data-boxplot, include=TRUE, fig.height=3.5, fig.cap="Registration Differences by County", fig.align='left'}
+# model_df %>% 
+#     mutate(flag = case_when (VoterFreq > Freq ~ 1, TRUE ~ 0)) %>%
+#   summarize(sum(flag))
+
+## get df for boxplot
+sample = model_df %>% 
+  filter(VoterFreq > Freq) %>%
+  mutate(diff = VoterFreq - Freq)
+
+## remove counties with less than 5 observation to make plot easier to read
+sample = sample %>% 
+  inner_join(sample %>% group_by(Geography) %>% 
+               count() %>% filter(n > 5), keep = FALSE) %>%
+  dplyr::select(-n)
+
+# ggplot(sample, aes(x = Geography, y=log(diff))) + 
+ggplot(sample, aes(x = reorder(Geography, -log(diff), mean), y=log(diff))) + 
+    geom_boxplot(outlier.size = 0.1) + 
+  ggtitle("Registration Differences by County") + ylab("Population Difference") +
+  xlab("County") +
+  theme_minimal() +
+  geom_hline(yintercept = log(100), linetype="dashed", color="red", size=0.3) +
+  geom_hline(yintercept = log(50), linetype="dashed", color="darkgreen", size=0.3) +
+  theme(legend.position="none", 
+        plot.title = element_text(hjust = 0.5),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.text = element_text(size = 10),
+        axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  scale_y_continuous(breaks = log(c(1, 10, 50, 100, 400)),
+                   labels = c(1, 10, 50, 100, 400))
+```
 
 
 ```{r, sample-counties-modeling-df}
@@ -242,7 +295,7 @@ model_df = model_df %>%
 ```
 
 
-**Motivating the Model**  
+**Motivating a Multilevel Model**  
 An exploratory data analysis (EDA) was conducted to evaluate modeling decisions,
 like where to apply random effects. Figure 1 displays voter registration trends 
 for three counties (color coded) and two demographic categories. The left plot fits 
@@ -253,15 +306,18 @@ Plots for remaining covariates can be viewed in the Appendix. In addition
 to age, party affiliation showed similar variation between categories, but other
 covariates displayed consistent trends.
 
-```{r, include=TRUE, fig.cap="Voter Registration Behavior", fig.height=4}
+```{r, motivate-the-model, include=TRUE, fig.cap="Voter Registration Behavior", fig.height=4.5}
 # ggplot(data=model_df %>% filter(Geography %in% c("WAKE", "MECKLENBURG", "BUNCOMBE")),
 p1 = ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
        aes(x=Freq, y=VoterFreq, col=Geography, group=interaction(Geography, Age))) +
   geom_point(size = 1.2, alpha=.9) + 
   theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+    theme(plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5), 
+          legend.position="bottom",
+          panel.border = element_rect(colour = "black", fill=NA, size=1)) +
   geom_smooth(method = lm, se=FALSE, size=.5, alpha  = .5) +
-  theme(legend.position="bottom", panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  # theme(legend.position="bottom", panel.border = element_rect(colour = "black", fill=NA, size=1)) +
   labs(subtitle = "Age") + 
   ylab("Registered Voters") + xlab("Total Demographic Population")
 ## by race
@@ -284,6 +340,7 @@ annotate_figure(plot, top = text_grob("Voter Registration vs. Demographic Popula
                                       , face = "bold", size = 13))
 ```
 
+\newpage
 
 **Model Specification**  
 The modeling framework can be specified as follows. Let $n_{ijk}, p_{ijk}$
@@ -397,11 +454,6 @@ m3
 
 
 
-```{r, trace-plots}
-
-```
-
-
 
 ```{r}
 
@@ -412,43 +464,32 @@ m3
 
 <!-- How did different demographic subgroups register to vote in the 2016 elections? For example, how did the registration rate for males compare to the registration rate for females after controlling for other potential predictors? -->
 
-```{r}
-## replicate plots on the slide comparing male/female
-# library(wesanderson)
-# library(dutchmasters)
+```{r, demographic-subgroup-analysis}
+m1_fxed = data.frame(fixef(m1))
+m1_fxed$model = "Model II"
+m1_fxed$parameter = rownames(m1_fxed)
+m1_fxed = m1_fxed[2:nrow(m1_fxed),]
+rownames(m1_fxed) = NULL
 
-## slides use a "case" number to plot performance...I have too many cases to do this
+m2_fxed = data.frame(fixef(m2))
+m2_fxed$model = "Model II"
+m2_fxed$parameter = rownames(m2_fxed)
+m2_fxed = m2_fxed[2:nrow(m2_fxed),]
+rownames(m2_fxed) = NULL
 
-p = predict(m1) %>% 
-  as_tibble() %>% bind_cols(model_df)
+m3_fxed = data.frame(fixef(m3))
+m3_fxed$model = "Model III"
+m3_fxed$parameter = rownames(m3_fxed)
+m3_fxed = m3_fxed[2:nrow(m3_fxed),]
+rownames(m3_fxed) = NULL
 
-## for each model how many estimates fall inside the CR
+tst = rbind(m1_fxed, m2_fxed, m3_fxed)
 
-
-# d_text <-
-#   model_df %>%
-#   group_by(Geography, Age, Gender, Hispanic, Race, PartyCd) %>%
-#   summarise(case  = mean(as.numeric(case)),
-#             admit = mean(admit / applications) + .05)
-# 
-# ggplot(data = d, aes(x = case, y = admit / applications)) +
-#   geom_pointrange(data = p, 
-#                   aes(y    = Estimate / applications,
-#                       ymin = Q2.5     / applications ,
-#                       ymax = Q97.5    / applications),
-#                   color = wes_palette("Moonrise2")[1],
-#                   shape = 1, alpha = 1/3) +
-#   geom_point(color = wes_palette("Moonrise2")[2]) +
-#   geom_line(aes(group = dept),
-#             color = wes_palette("Moonrise2")[2]) +
-#   geom_text(data = d_text,
-#             aes(y = admit, label = dept),
-#             color = wes_palette("Moonrise2")[2],
-#             family = "serif") +
-#   coord_cartesian(ylim = 0:1) +
-#   labs(y     = "Proportion admitted",
-#        title = "Posterior validation check") +
-#   theme(axis.ticks.x = element_blank())
+ggplot(tst, aes(x=Estimate, y=parameter,xmin = Q2.5, xmax = Q97.5, color=model)) + 
+  geom_pointinterval() +
+  ggtitle("Population Estimates") +
+  ylab("Fixed Effect") + xlab("Coefficient Estimate") + 
+  theme(plot.title = element_text(hjust = 0.5)) + geom_vline(xintercept = 0)
 ```
 
 
@@ -464,8 +505,8 @@ p = predict(m1) %>%
 
 ```{r}
 ## nice to have...
-p = predict(m1) %>% 
-  as_tibble() %>% bind_cols(model_df)
+# p = predict(m1) %>% 
+#   as_tibble() %>% bind_cols(model_df)
 
 ## for each model how many estimates fall inside the CR
 ```
@@ -510,6 +551,26 @@ ggplot(data=model_df %>% filter(Geography %in% c("JACKSON", "COLUMBUS", "LEE")),
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1), legend.position = "none") +
   labs(subtitle = "Color by Geography & Fit by Political Party") + 
   ylab("Registered Voters") + xlab("Total Demographic Population")
+```
+
+
+**Trace Plots**  
+
+```{r, trace-plots, include=TRUE}
+m1df = ggs(m1)
+# get the same plots without bayesplot...have to filter out the warmup!
+m1df$Chain = factor(m1df$Chain)
+# caterpillar trace plots
+## only pick some paremeters for plotting
+ggplot(filter(m1df, Parameter %in% c("b_Age66P", "b_GenderMale", "b_HispanicNotHispanic")),
+       aes(x   = Iteration,
+           y   = value,
+           col = as.factor(Chain)))+
+  theme_minimal() +
+  geom_line() +
+  geom_vline(xintercept = 500) + ## add vertical line at the default warm-up value 1000
+  facet_grid(Parameter ~ . , scale  = 'free_y', switch = 'y') +
+  labs(title = "Model I: Trace Plots", col   = "Chains")
 ```
 
 
