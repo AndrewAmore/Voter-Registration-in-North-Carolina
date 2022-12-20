@@ -8,8 +8,8 @@ output:
   pdf_document:
     number_sections: true
 urlcolor: blue
-fontsize: 11pt
-geometry: "left=2cm,right=2cm,top=1.8cm,bottom=1.8cm"
+fontsize: 12pt
+geometry: "left=2.54cm,right=2.54cm,top=2.54cm,bottom=2.54cm"
 subparagraph: yes
 header-includes: |
   \usepackage{titlesec}
@@ -37,7 +37,6 @@ library(arm)
 library(ggpubr)     # panel plotting
 library(rcompanion) # for correlation computation with categorical variables
 library(gridExtra)  # plot manipulation
-
 source("utilities.R")
 
 rstan_options(auto_write = TRUE)
@@ -103,40 +102,53 @@ voter_stats = voter_stats %>%
   ungroup()
 ```
 
-**Abstract**  
-Political candidates are often interested in understanding factors influencing
-voter registration across different demographic categories and how overall registration
-probability varies. Understanding these aspects can enhance informed decision
-making for campaign staffs on election related decisions, like where to focus limited
-advertising budgets to sway voters. Official voter registration records and census
-population estimates for counties in North Carolina were collected and analyzed 
-using Bayesian hierarchical modeling strategies. The large number of demographic 
-combinations limit the analysis to a random sample of just 30% of all counties. 
-The final models suggest demographic attributes, like age and race, have significant
-impacts on registration rates as well as significant rate differences across counties.
-To explore predictive power of mulitlevel models, out-of-sample predictions on 
-registration rates were computed and compared to the true values using MSE. Overall,
-the fitted models display similar behavior and have high predictive accuracy for
-a majority of observations. 
 
 # Introduction
-Political campaigns analyze historical election data to understand how different
-demographic groups register to vote, specifically during presidential election
-years when individuals are more likely to show up at the polls. This information 
-can inform optimal advertising strategies, which can drum up more votes and win 
-elections. Campaigns are generally interested in assessing registration differences 
-amongst demographic groups and how registration tendencies vary by county, gender, 
-age and party affiliation.
+Political campaigns analyze historical election data to understand how demographic
+factors influence voter registration rates. This information can inform optimal 
+advertising strategies which can drum up more votes and win elections, especially
+during high profile election years when voter turnout can be substantially higher.
+In this report 2016 election data from North Carolina counties was used to 
+investigate how geography, gender, age and party affiliation influence registration
+behavior. The structure of the paper is as follows...
+
+First, I provide some brief background on hierarchical modeling and motivate
+their usage under the voter registration context. Next, I review the data used in the 
+analysis and discuss challenges arising from dated population estimates. Lastly,
+I specify several inference models and review their results for main questions of
+interest.
+
+# Background Information
+A hierarchical model is a statistical inference tool that replicates
+the natural nesting structure of observed data. This structure can violate traditional 
+modeling assumptions, like i.i.d. errors, that can lead to poor uncertainty 
+estimation if ignored. To address these shortcomings, hierarchical models define
+parameters at different group levels and permits them to vary, which accounts for
+group heterogeneity and can improve uncertainty estimation. For this analysis, voter
+registration and population data are generally aggregated by geography 
+(most naturally by county) during collection. Individuals may display different
+registration tendencies depending on the urban/rural environment of a particular
+geography, which lends itself well to hierarchical modeling, allowing parameters
+to vary by grouping structure.
+
+Hierarchical models can be estimated using Bayesian or Frequentist methods. Under 
+Bayesian estimation, parameters are treated as random quantities and derived
+from posterior distributions using Bayes rule. Posteriors provide more direct 
+uncertainty quantification, via credible regions, that avoid the interpretation 
+caveats of Frequentist based confidence intervals. However, this interpretability
+comes with an increased computational cost as Bayesian inference relies on expensive 
+sampling methods compared to likelihood based optimization. This analysis 
+predominantly uses Bayesian estimation methods using conjugate priors to avoid
+excessive computational costs. I'll now review the data used for the analysis.
+
 
 # Data Overview
-To address the main questions of interest, two data sources were analyzed. 
-Information from the [2010 U.S. Census](https://www.census.gov/data.html) was 
-collected from the Federal Census Bureau website and enhanced with official
-[2016 voter registration](https://vt.ncsbe.gov/) records from North Carolina. To 
-combine the data, demographic field values were standardized, as the coding structure
-varies slightly between State and Federal agencies. In total, there were **XX**
-registered voters with unknown gender lacking a corresponding Census
-category and these records were dropped. Irrelevant registration fields denoting 
+To investigate main questions of interest data from the [2010 U.S. Census](https://www.census.gov/data.html) was 
+was enhanced with North Carolina [voter registration](https://vt.ncsbe.gov/) 
+records from the 2016 Presidential election. To combine the data, demographic field values were standardized, as the coding structure
+varies slightly between State and Federal agencies. In total, there were 6,858 county
+level observations with unknown gender (~15%) which lack a population estimate from the
+Census data and these records were dropped. Irrelevant registration fields denoting 
 precinct location were also removed. Metadata information for the combined dataset
 and a sample observation, can be viewed in Table 1.
 
@@ -512,7 +524,7 @@ MCMC diagnostics, like trace plots, can be viewed in the Appendix for each model
 The main questions of interest concern demographic factors influencing registration
 probabilities. We are particularly interested in the following italicized questions.
 
-**_1. How did different demographic subgroups register to vote in the 2016 election?_**  
+## _How did different demographic subgroups register to vote?_
 The fixed effect estimates from each model are plotted in Figure 3 with 95% credible
 regions (CR). Note, not all models include identical fixed effects, but the overlapping
 estimates tend to display more shrinkage with increased model complexity.
@@ -544,7 +556,7 @@ ggplot(tst, aes(x=Estimate, y=parameter, xmin = Q2.5, xmax = Q97.5, color=Model)
     geom_vline(xintercept =0, linetype="dashed", color="darkred", size=0.5)
 ```
 
-**_2. Did the overall odds of registering differ by county in 2016? Which counties differ the most from other counties?_**  
+## _Did the overall odds of registering differ by county in 2016?_
 Only 30 counties are included in this analysis and the list can be viewed in the 
 Appendix. The random intercepts from Model I, with 95% CR are displayed in Figure
 4. Tyrrell, the only county in the dataset without any "invalid" observations has
@@ -568,7 +580,7 @@ m1 %>%
   xlab("Change in Log Odds")
 ```
 
-**_3. How did the registration rates differ between genders for different party affiliations?_**  
+## _How did the registration rates differ between genders for different party affiliations?_
 Using Model II we can look at the gender effect within each political party from
 random slope estimates and assess the relative change in log odds from the baseline
 gender (Female). Figure 5 shows 95% CRs and point estimates. Males across all political 
@@ -593,7 +605,7 @@ m2 %>%
 
 \newpage
 
-**_4. How did registration rates differ between age groups for the different party affiliations?_**  
+## _Registration differences between age groups by party affiliation?_
 Using Model III we can look at the age effect within each political party from 
 random slope estimates assess the relative change in log odds from the baseline
 age (18-25). Figure 6 shows 95% CRs and point estimates. In almost all age categories
@@ -616,11 +628,11 @@ m3 %>%
   xlab("Change in Log Odds")
 ```
 
-**Predictive Accuracy**  
+## Predictive Accuracy
 In addition to inference, we are interested in predicting registered voters for
 each demographic combination. 70% of our data is unseen by the model and constitutes
 the test set. For ease of viewing, I've randomly selected one unseen county and 
-display the predictive accurarcy for every demographic combination in Figure 7.
+display the predictive accuracy for every demographic combination in Figure 7.
 The error is computed as the difference between the actual number of registered 
 voters and the model prediction. Dashed lines on Figure 7 denote average error. 
 Surprisingly, Model I has the best predictive performance, with average error 
@@ -682,8 +694,7 @@ ggplot(results, aes(x=index, y=abs_diff, color = Model)) +
 
 ```
 
-
-**Limitations**  
+# Limitations & Conclusion  
 Several limitations have been mentioned throughout and are summarized. First,
 we have concerns about the viability of the 2010 Census for population estimates
 in 2016 as some observations have more voter registrations than population estimates.
@@ -714,7 +725,7 @@ binomial regression models as there is no independent variance term. If overdisp
 is present, our estimates will be overconfident. Time constraints prevented testing
 for overdispersion and applying an uncertainty adjustment to estimates.
 
-**Conclusion**  
+<!-- **Conclusion**   -->
 Historical voting records and Census population estimates were used to evaluate 
 demographic differences in registration tendencies. Three Bayesian multilevel
 models were created to address specific questions of interest using different
@@ -725,7 +736,7 @@ Carolina.
 
 \newpage
 
-## Appendix
+# Appendix
 **Additional Covariate Plots**  
 ```{r, additional-covariate-plots, include=TRUE}
 ## gender: consistent trends

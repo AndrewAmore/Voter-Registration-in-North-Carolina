@@ -5,7 +5,20 @@ been enhanced with additional data reflecting more accurate population estimates
 and improved with new estimation techniques...
 
 ### Case Study Abstract
-
+Political candidates are often interested in understanding factors influencing
+voter registration across different demographic categories and how overall registration
+probability varies. Understanding these aspects can enhance informed decision
+making for campaign staffs on election related decisions, like where to focus limited
+advertising budgets to sway voters. Official voter registration records and census
+population estimates for counties in North Carolina were collected and analyzed 
+using Bayesian hierarchical modeling strategies. The large number of demographic 
+combinations limit the analysis to a random sample of just 30% of all counties. 
+The final models suggest demographic attributes, like age and race, have significant
+impacts on registration rates as well as significant rate differences across counties.
+To explore predictive power of multilevel models, out-of-sample predictions on 
+registration rates were computed and compared to the true values using MSE. Overall,
+the fitted models display similar behavior and have high predictive accuracy for
+a majority of observations. 
 
 ### Description of Contents
 - ```./data/```: raw data directory and data processing scripts
