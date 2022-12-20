@@ -4,10 +4,12 @@ title: |
 author: Andrew Amore 
 date: |
   | \vspace{-0.6cm} \small 2022-11-21
-output: pdf_document
+output: 
+  pdf_document:
+    number_sections: true
 urlcolor: blue
 fontsize: 11pt
-geometry: "left=1.8cm,right=1.8cm,top=1.5cm,bottom=1.5cm"
+geometry: "left=2cm,right=2cm,top=1.8cm,bottom=1.8cm"
 subparagraph: yes
 header-includes: |
   \usepackage{titlesec}
@@ -101,22 +103,23 @@ voter_stats = voter_stats %>%
   ungroup()
 ```
 
-<!-- ## *Abstract* -->
-<!-- *Political candidates are often interested in understanding factors influencing -->
-<!-- voter registration rates across different demographic categories and how they  -->
-<!-- effect overall registration probability. Understanding these aspects can better  -->
-<!-- inform campaign staffs on election related decisions, like where to focus limited -->
-<!-- advertising budgets.* -->
+**Abstract**  
+Political candidates are often interested in understanding factors influencing
+voter registration across different demographic categories and how overall registration
+probability varies. Understanding these aspects can enhance informed decision
+making for campaign staffs on election related decisions, like where to focus limited
+advertising budgets to sway voters. Official voter registration records and census
+population estimates for counties in North Carolina were collected and analyzed 
+using Bayesian hierarchical modeling strategies. The large number of demographic 
+combinations limit the analysis to a random sample of just 30% of all counties. 
+The final models suggest demographic attributes, like age and race, have significant
+impacts on registration rates as well as significant rate differences across counties.
+To explore predictive power of mulitlevel models, out-of-sample predictions on 
+registration rates were computed and compared to the true values using MSE. Overall,
+the fitted models display similar behavior and have high predictive accuracy for
+a majority of observations. 
 
-<!-- *To conduct an analysis, official voter registration records and census population  -->
-<!-- estimates for counties in North Carolina were collected and analyzed using Bayesian -->
-<!-- hierarchical modeling strategies to better quantify estimate uncertainty across  -->
-<!-- different geographies. The final model indicates...* -->
-<!-- <!-- more here once completed... -->
-
-## Analysis
-
-**Introduction**  
+# Introduction
 Political campaigns analyze historical election data to understand how different
 demographic groups register to vote, specifically during presidential election
 years when individuals are more likely to show up at the polls. This information 
@@ -125,18 +128,17 @@ elections. Campaigns are generally interested in assessing registration differen
 amongst demographic groups and how registration tendencies vary by county, gender, 
 age and party affiliation.
 
-**Dataset Overview**  
+# Data Overview
 To address the main questions of interest, two data sources were analyzed. 
 Information from the [2010 U.S. Census](https://www.census.gov/data.html) was 
 collected from the Federal Census Bureau website and enhanced with official
 [2016 voter registration](https://vt.ncsbe.gov/) records from North Carolina. To 
 combine the data, demographic field values were standardized, as the coding structure
-varies slightly between State and Federal agencies. Field values without a corresponding
-match were dropped from the analysis. For example, Census estimates quantify
-two genders (male/female) while registration records include a third unknown 
-category. Irrelevant registration fields denoting precinct location were also
-removed. Metadata information for the combined dataset and a sample observation, 
-can be viewed in Table 1.
+varies slightly between State and Federal agencies. In total, there were **XX**
+registered voters with unknown gender lacking a corresponding Census
+category and these records were dropped. Irrelevant registration fields denoting 
+precinct location were also removed. Metadata information for the combined dataset
+and a sample observation, can be viewed in Table 1.
 
 ```{r, show-metadata, include=TRUE, fig.height=3.1}
 ## ignore U issue and drop out
@@ -153,7 +155,6 @@ model_df$PartyCd = as.factor(model_df$party_cd)
 model_df = model_df %>% 
   dplyr::select(-party_cd)
 
-## several instances where voter_freq > than CensusFreq...people either travel to polls or 2010 census data doesn't reflect population at 2016 election
 # model_df$VoterTurnout = model_df$VoterFreq/model_df$TotalCountyPopulation
 model_df = model_df %>% 
   filter(Freq > 0)
@@ -188,35 +189,12 @@ ggtexttable(tbl_df, rows=NULL, cols = c("Field Name", "Description", "Sample"),
                 padding=unit(c(1,0), "mm"))
 ```
 
-**Voter Fraud?**  
+## Population Migration
 The 2010 Census is assumed to represent the voter population during the 2016 
 election, however, **16.3%** of all observations have more registered voters than
 the demographic population estimates from the Census. Are we observing potential
 voter fraud or is historical Census information from six years ago too dated to 
 reflect accurate estimates? 
-
-<!-- Both examples in Table 2 have relatively small differences, -->
-<!-- but only consider one political party. When summing over all political parties for a -->
-<!-- given demographic group the discrepancies increase. -->
-
-```{r, population-sample, fig.height=0.95}
-# set.seed(7324)
-# options(scipen=999)
-# options(digits = 3)
-# sample = model_df %>% 
-#   filter(VoterFreq > Freq) %>% 
-#   slice_sample(n=2) %>% 
-#   dplyr::select(-TotalCountyPopulation) %>%
-#   relocate(PartyCd, .before=VoterFreq)
-# 
-# ggtexttable(sample, rows=NULL,
-#                   theme=ttheme("classic", base_size = 9, padding=unit(c(3.5,3.5), "mm"))) %>%
-#   table_cell_bg(row = 2:(nrow(sample) + 1), column=7, linewidth = 1, fill="#FF9999", color = "black") %>%
-#   table_cell_bg(row = 2:(nrow(sample) + 1), column=8, linewidth = 1, fill="#FF9999", color = "black") %>%
-#   tab_add_title(text = "Table 2: Bad Data Sample", size = 9, face = "plain",
-#                 padding=unit(c(1,1), "mm"))
-```
-
 To understand the scope of this issue, the difference between total
 registered voters and Census estimates were computed and aggregated by county. 
 Figure 1 shows summaries for geographies with more than five observations for ease
@@ -229,7 +207,6 @@ are set to the sum of registered voters, but could also be inflated with a corre
 factor learned from other observations.
 <!-- this could be improved by multiplying by average percent difference... -->
 
-<!-- r, bad-data-boxplot, include=TRUE, fig.height=4, fig.cap="Registration Differences by County", fig.align='left', fig.asp=0.62 -->
 ```{r, bad-data-boxplot, include=TRUE, fig.height=4.25, fig.cap="Registration Differences by County", fig.align='left'}
 ## get observations meeting the criteria
 sample = model_df %>%
@@ -327,7 +304,7 @@ model_df = model_df %>%
 ```
 
 
-**Motivating a Multilevel Model**  
+## Motivating a Multilevel Model 
 We are interested in understanding how demographic covariates affect the number of
 registered voters ("successes") relative to respective population estimates ("trials"), 
 suggesting a binomial model. However, we do not know the political party affiliation
@@ -337,7 +314,6 @@ conclusions on party membership registration influence. As an initial estimate f
 this missing quantity, I impute it based on the original population Census estimates
 and the political party distribution for registered voters. This new quantity is
 used in place of the original estimates for inference. 
-
 To evaluate modeling decisions, like where to apply random effects, an exploratory 
 data analysis (EDA) was conducted. Figure 2 is a facet plot of different binomial
 regressions on voter registration probability for two demographic categories and 
@@ -354,7 +330,6 @@ valid sampling distributions in brms (even with scaling and prior adjustments).
 alpha = 0.05
 
 ## age
-### these are too hard to read
 p1 = ggplot(data=model_df,
 # p1 = ggplot(data=model_df %>% filter(Geography %in% c("ALAMANCE", "COLUMBUS", "LEE", "YADKIN", "EDGECOMBE")),
        aes(x=Affil_Freq, y=VoterFreq/Affil_Freq, col=Geography, group=interaction(Geography, Age))) +
@@ -399,7 +374,6 @@ p2 = ggplot(data=model_df,
 
 p2 = p2 + facet_wrap(~Race) + theme(strip.text.x = element_text(size = 11, face = "bold.italic"))
 
-## this works but issues with legend
 plot = ggarrange(p1, p2,ncol=1, nrow=2, common.legend = FALSE, 
                  labels="AUTO")
 annotate_figure(plot, top = text_grob("Voter Registration Probability by Demographic Segmentation"
@@ -414,7 +388,9 @@ compute_corr(corr_df)
 
 \newpage
 
-**Model Specification**  
+# Multilevel Models
+
+## Model Specifications
 The modeling framework can now be specified as follows. Let $\left(y_{i}, n_{i}, p_{i}\right)$
 denote the number of voter registrations, demographic population and registration 
 probability respectively for observation $i$. $y_{i}$ is assumed to be distributed
@@ -448,7 +424,7 @@ ggtexttable(tbl_df, rows=c("Model I ", "Model II ", "Model III "),
                 padding=unit(c(1,0), "mm"))
 ```
 
-**Model I**  
+### Model I
 Let $\mu$ denote a global intercept corresponding to a baseline demographic category 
 with the following values: 'Female', 'Hispanic', 'AmericanIndianOrAlaskaNativeAlone',
 'DEM' and '18-25'. Let $\theta_{j}$ denote a **county** random effect intercept 
@@ -474,7 +450,7 @@ m1 = brm(data = model_df, family = "binomial",
       chains = 4)
 ```
 
-**Model II**  
+### Model II
 In accordance with the model specification in Table 2, let $\mu$ denote a global 
 intercept corresponding to a baseline demographic category with the following 
 values: 'Hispanic', 'AmericanIndianOrAlaskaNativeAlone' and '18-25'. Let $\Omega_{p}$
@@ -502,7 +478,7 @@ m2 = brm(data = model_df, family = "binomial",
       chains = 4)
 ```
 
-**Model III**  
+### Model III
 In accordance with the model specification in Table 2, let $\mu$ denote a global
 intercept corresponding to a baseline demographic category with the following 
 values: 'Female', 'Hispanic' and 'AmericanIndianOrAlaskaNativeAlone'. Let $\Omega_{p}$ 
@@ -531,13 +507,12 @@ m3 = brm(data = model_df, family = "binomial",
 ```
 
 
-**Results**  
+# Results
 MCMC diagnostics, like trace plots, can be viewed in the Appendix for each model.
 The main questions of interest concern demographic factors influencing registration
 probabilities. We are particularly interested in the following italicized questions.
 
 **_1. How did different demographic subgroups register to vote in the 2016 election?_**  
-<!-- For example, how did the registration rate for males compare to the registration rate for females after controlling for other potential predictors? -->
 The fixed effect estimates from each model are plotted in Figure 3 with 95% credible
 regions (CR). Note, not all models include identical fixed effects, but the overlapping
 estimates tend to display more shrinkage with increased model complexity.
@@ -557,13 +532,10 @@ for(i in 1:num_models){
 }
 
 ggplot(tst, aes(x=Estimate, y=parameter, xmin = Q2.5, xmax = Q97.5, color=Model)) +
-# ggplot(tst, aes(x=Estimate, y=parameter)) +
-  # geom_point(alpha=0.5, shape=1) +
   geom_pointinterval(alpha = 0.5, shape=1) +
   theme_minimal() +
   # geom_errorbar(aes(xmin=Q2.5, xmax=Q97.5, color=model), width=.1) +
   ggtitle("Demographic Effect Estimates") +
-  # ylab("Fixed Effect") + 
   xlab("Change in Log Odds") + 
   theme(plot.title = element_text(hjust = 0.5),
         legend.position="bottom",
