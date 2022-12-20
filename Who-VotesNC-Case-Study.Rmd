@@ -99,27 +99,6 @@ voter_stats = voter_stats %>%
   group_by(Geography, party_cd, Age, Gender, Hispanic, Race) %>%
   summarise(VoterFreq = sum(total_voters)) %>%
   ungroup()
-
-## PARTY NUMBERS ##
-### this probably isn'r relevant as it looks to contain the same information as the
-### voter stats file
-# party_df = read.table(file="./data/party_count.txt", skip = 5, sep = ",", 
-#                       col.names = c("county", "democrat", "republican", "green", 
-#                                     "constitution", "libertarian", "unaffiliated",
-#                                     "white", "black", "american indian", "native hawaiian",
-#                                     "other", "hispanic", "male", "female", "total"))
-# ## subset to only relevant party counts, pivot and adjust values to match
-# party_df = party_df %>%
-#    dplyr::select(county, democrat, republican, libertarian, unaffiliated) %>%
-#   pivot_longer(!county, names_to = "party", values_to = "party_cnt") %>%
-#   mutate(party_cd = case_when(
-#     party == "democrat" ~ "DEM",
-#     party == "republican" ~ "REP",
-#     party == "libertarian" ~ "LIB",
-#     TRUE ~ "UNA"
-#   )) %>%
-#   dplyr::select(-party) %>%
-#   relocate(party_cd, .before=party_cnt)
 ```
 
 <!-- ## *Abstract* -->

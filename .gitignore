@@ -1,4 +1,8 @@
 ### R ###
+
+# custom
+data/2020_census_raw/
+
 # History files
 .Rhistory
 .Rapp.history
