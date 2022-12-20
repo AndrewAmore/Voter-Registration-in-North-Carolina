@@ -8,7 +8,10 @@ and improved with new estimation techniques...
 
 
 ### Description of Contents
-- ```file_name.1```: blah, blah, blah
+- ```./data/```: raw data directory and data processing scripts
+- ```./models/```: fitted model objects
+- ```./Who-VotesNC-Case-Study.Rmd```: main logic for analysis
+- ```./utilities.R```: helper function definitions
 
 
 ### Acknowledgements
