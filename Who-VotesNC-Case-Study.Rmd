@@ -141,7 +141,6 @@ sampling methods compared to likelihood based optimization. This analysis
 predominantly uses Bayesian estimation methods using conjugate priors to avoid
 excessive computational costs. I'll now review the data used for the analysis.
 
-
 # Data Overview
 To investigate main questions of interest data from the [2010 U.S. Census](https://www.census.gov/data.html) was 
 was enhanced with North Carolina [voter registration](https://vt.ncsbe.gov/) 
@@ -152,13 +151,12 @@ Census data and these records were dropped. Irrelevant registration fields denot
 precinct location were also removed. Metadata information for the combined dataset
 and a sample observation, can be viewed in Table 1.
 
-```{r, show-metadata, include=TRUE, fig.height=3.1}
+```{r, show-metadata, include=TRUE, fig.height=3.3}
 ## ignore U issue and drop out
 model_df = voter_stats %>% 
   inner_join(census)
 
 # compute features
-## factorize
 model_df$Age = as.factor(model_df$Age)
 model_df$Gender = as.factor(model_df$Gender)
 model_df$Hispanic = as.factor(model_df$Hispanic)
@@ -167,7 +165,6 @@ model_df$PartyCd = as.factor(model_df$party_cd)
 model_df = model_df %>% 
   dplyr::select(-party_cd)
 
-# model_df$VoterTurnout = model_df$VoterFreq/model_df$TotalCountyPopulation
 model_df = model_df %>% 
   filter(Freq > 0)
 
@@ -193,11 +190,11 @@ tbl_df = data.frame(
 )
 
 ggtexttable(tbl_df, rows=NULL, cols = c("Field Name", "Description", "Sample"),
-                  theme=ttheme("classic", base_size = 9, padding=unit(c(5,5), "mm"))) %>%
+                  theme=ttheme("classic", base_size = 10, padding=unit(c(5,5), "mm"))) %>%
   table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 1, face = "bold", size = 8) %>%
   table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 2, face = "italic", size = 8) %>%
   table_cell_font(row = 2:(nrow(tbl_df) + 1), column = 3, face = "italic", size = 8) %>%
-  tab_add_title(text = "Table 1: Metadata Information", size = 9, face = "plain",
+  tab_add_title(text = "Table 1: Metadata Information", size = 10, face = "plain",
                 padding=unit(c(1,0), "mm"))
 ```
 
@@ -206,7 +203,7 @@ The 2010 Census is assumed to represent the voter population during the 2016
 election, however, **16.3%** of all observations have more registered voters than
 the demographic population estimates from the Census. Are we observing potential
 voter fraud or is historical Census information from six years ago too dated to 
-reflect accurate estimates? 
+reflect accurate estimates?
 To understand the scope of this issue, the difference between total
 registered voters and Census estimates were computed and aggregated by county. 
 Figure 1 shows summaries for geographies with more than five observations for ease
@@ -217,7 +214,8 @@ moderately small differences assuages some concerns of major population
 shifts over the six year period. Population estimates for the "invalid" observations 
 are set to the sum of registered voters, but could also be inflated with a correction
 factor learned from other observations.
-<!-- this could be improved by multiplying by average percent difference... -->
+
+\newpage
 
 ```{r, bad-data-boxplot, include=TRUE, fig.height=4.25, fig.cap="Registration Differences by County", fig.align='left'}
 ## get observations meeting the criteria
@@ -317,26 +315,20 @@ model_df = model_df %>%
 
 
 ## Motivating a Multilevel Model 
-We are interested in understanding how demographic covariates affect the number of
-registered voters ("successes") relative to respective population estimates ("trials"), 
-suggesting a binomial model. However, we do not know the political party affiliation
-for unregistered voters, as the Census does not ask about political affiliation and
-this membership is considered latent. This is information is necessary to draw
-conclusions on party membership registration influence. As an initial estimate for
-this missing quantity, I impute it based on the original population Census estimates
-and the political party distribution for registered voters. This new quantity is
-used in place of the original estimates for inference. 
-To evaluate modeling decisions, like where to apply random effects, an exploratory 
-data analysis (EDA) was conducted. Figure 2 is a facet plot of different binomial
-regressions on voter registration probability for two demographic categories and 
-color coded by county. (A) fits regressions by county, age group and has substantially 
-different trend lines across and within facets. (B) fits regressions by county, 
-race and has much lower variability across facets. Plots for additional covariates
-can by found in the Appendix. Gender effects are consistent across geography, party
-affiliation displays consistent trends as does hispanic indicator. Continuous fields,
-like total county population, were also explored in the regression analysis, but
-were not included in the final model as including it lead to difficulty generating 
-valid sampling distributions in brms (even with scaling and prior adjustments).
+Voter data and population estimates are naturally grouped by geography,
+suggesting a multilevel model using the county of measurement. We are interested 
+in understanding how covariates, like age and political affiliation, influence 
+registration rates. A model, without any hierarchical components, can be formatted
+as a binomial regression, where registered voters represent the number of "successes"
+from the population (trials). To evaluate modeling decisions, like where to apply
+random effects, an exploratory data analysis was conducted. Figure 2 displays 
+facets for different binomial regressions on registration probability for two 
+demographic categories, color coded by county. (A) fits regressions by county/age
+with substantially different trends across/within facets. (B) fits regressions by
+county/race with lower facet variability. Additional plots can by found in the 
+Appendix. Continuous covariates hindered posterior mixing with brms and were 
+excluded.
+
 
 ```{r, motivate-the-model, include=TRUE, fig.cap="Voter Registration Behavior for (A) Age Category and (B) Race", fig.height=13, fig.width=10}
 alpha = 0.05
@@ -392,13 +384,18 @@ annotate_figure(plot, top = text_grob("Voter Registration Probability by Demogra
                                       ,face = "bold", size = 15))
 ```
 
+Under the current model it is impossible to determine the effect of party affiliation
+on registration probability as the Census does not collect political affiliation 
+with population estimates. This unknown quantity is latent for unregistered voters
+and needs to be imputed. As an initial estimate, the political affiliation for 
+unregistered citizens can be assigned from the original political affiliation of
+registered voters for each demographic grouping in each geography.
+
 ```{r, categorical-correlation-matrix}
 corr_df = model_df %>% 
   dplyr::select(Age, Gender, Hispanic, Race, PartyCd)
 compute_corr(corr_df)
 ```
-
-\newpage
 
 # Multilevel Models
 
@@ -518,11 +515,12 @@ m3 = brm(data = model_df, family = "binomial",
       chains = 4)
 ```
 
+\newpage
 
 # Results
 MCMC diagnostics, like trace plots, can be viewed in the Appendix for each model.
 The main questions of interest concern demographic factors influencing registration
-probabilities. We are particularly interested in the following italicized questions.
+probabilities.
 
 ## _How did different demographic subgroups register to vote?_
 The fixed effect estimates from each model are plotted in Figure 3 with 95% credible
@@ -562,7 +560,7 @@ Appendix. The random intercepts from Model I, with 95% CR are displayed in Figur
 4. Tyrrell, the only county in the dataset without any "invalid" observations has
 the lowest registration effect, while **43%** of counties have no detectable effect.
 
-```{r, present-county-intercept, include=TRUE, fig.cap="County Level Intercept Estimates from Model II", fig.height=4.75}
+```{r, present-county-intercept, include=TRUE, fig.cap="County Level Intercept Estimates from Model II", fig.height=4}
 m1 %>%
   spread_draws(b_Intercept, r_Geography[Geography,]) %>%
   # median_qi(county_mean = b_Intercept + r_Geography) %>%
@@ -580,7 +578,7 @@ m1 %>%
   xlab("Change in Log Odds")
 ```
 
-## _How did the registration rates differ between genders for different party affiliations?_
+## _How do registration rates differ by gender for each party?_
 Using Model II we can look at the gender effect within each political party from
 random slope estimates and assess the relative change in log odds from the baseline
 gender (Female). Figure 5 shows 95% CRs and point estimates. Males across all political 
@@ -603,9 +601,9 @@ m2 %>%
   xlab("Change in Log Odds")
 ```
 
-\newpage
+<!-- \newpage -->
 
-## _Registration differences between age groups by party affiliation?_
+## _Registration differences by age group for each party?_
 Using Model III we can look at the age effect within each political party from 
 random slope estimates assess the relative change in log odds from the baseline
 age (18-25). Figure 6 shows 95% CRs and point estimates. In almost all age categories
@@ -629,14 +627,12 @@ m3 %>%
 ```
 
 ## Predictive Accuracy
-In addition to inference, we are interested in predicting registered voters for
-each demographic combination. 70% of our data is unseen by the model and constitutes
-the test set. For ease of viewing, I've randomly selected one unseen county and 
-display the predictive accuracy for every demographic combination in Figure 7.
-The error is computed as the difference between the actual number of registered 
-voters and the model prediction. Dashed lines on Figure 7 denote average error. 
+To assess model validity we can compare the predicted number of registrations
+to the true value from the out-of-sample counties. 70% of our data is held-out 
+and constitutes a test set. Figure 7 displays model predictions for each demographic
+group within one out-of-sample county and dashed lines denote average error. 
 Surprisingly, Model I has the best predictive performance, with average error 
-roughly 10 individuals, but median error of less than one. 
+of roughly 10 individuals, but median error of less than one. 
 
 ```{r, predictive-accuracy, include=TRUE, fig.height=3.75, fig.cap="Predictive Accuracy for One Unseen County Across All Demographic Groups"}
 ## select county from test set at random
@@ -681,10 +677,13 @@ ggplot(results, aes(x=index, y=abs_diff, color = Model)) +
              aes(yintercept = model_mean,col=Model), linetype="dashed")
 ```
 
-\newpage
+Table XX displays overall predictive performance for the training set and out-of-sample
+test set.
 
-```{r}
-## nice to have...
+```{r, total-pred-accuracy, include=TRUE}
+## overall predictions
+
+
 # p = predict(m1) %>% 
 #   as_tibble() %>% bind_cols(model_df)
 
@@ -693,6 +692,9 @@ ggplot(results, aes(x=index, y=abs_diff, color = Model)) +
 ### overdispersion
 
 ```
+
+
+\newpage
 
 # Limitations & Conclusion  
 Several limitations have been mentioned throughout and are summarized. First,
