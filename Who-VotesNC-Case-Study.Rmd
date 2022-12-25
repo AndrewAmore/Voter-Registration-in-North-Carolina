@@ -44,64 +44,9 @@ options(mc.cores = parallel::detectCores())
 ```
 
 ```{r, data-load-and-clean}
-## CENSUS DATA ##
-census = read.table(file="./data/Census2010_long.txt", header = TRUE)
-
-# clean data
-## combine NativeHawaiianOrOtherPacificIslanderAlone and SomeOtherRaceAlone to match voter_stats
-census = census %>% 
-  filter(Race %in% c("NativeHawaiianOrOtherPacificIslanderAlone", "SomeOtherRaceAlone")) %>%
-  group_by(Geography, Age, Gender, Hispanic) %>% 
-  summarise(freq_sum = sum(Freq)) %>% 
-  mutate(Race = "SomeOtherRaceAlone") %>% 
-  inner_join(census, by= c("Geography")) %>%
-  distinct(Geography, Age.x, Gender.x, Hispanic.x, Race.x, freq_sum, TotalCountyPopulation) %>%
-  rename("Age" = "Age.x", "Gender" = "Gender.x", "Hispanic" = "Hispanic.x", "Race" = "Race.x", "Freq" = "freq_sum") %>%
-  relocate(Freq, .after = Race) %>%
-  union(census %>% filter(!Race %in% c("NativeHawaiianOrOtherPacificIslanderAlone", "SomeOtherRaceAlone"))) %>%
-  ungroup()
-
-## VOTER REGISTRATION DATA ##
-voter_stats = read.table(file="./data/voter_stats_20161108.txt", header = TRUE, na.strings=c("", " ", NA))
-## democrat, libertarian, republican, unaffiliated
-
-# clean data
-voter_stats = voter_stats %>% 
-  # reformat age to match
-  mutate(Age = case_when(
-    age == "Age 18 - 25" ~ "18-25",
-    age == "Age 26 - 40" ~ "26-40",
-    age == "Age 41 - 65" ~ "41-65",
-    TRUE ~ "66+")) %>%
-  # rename county to match
-  rename("Geography" = "county_desc") %>%
-  # reformat ethnicity
-  mutate(Hispanic = case_when(
-    ethnic_code == "NL" ~ "NotHispanic",
-    ethnic_code == "HL" ~ "Hispanic",
-    TRUE ~ "Undesignated")) %>%
-  ## one unmatched field between sources (NativeHawaiianOrOtherPacificIslanderAlone)
-  mutate(Race = case_when(
-    race_code == "W" ~ "WhiteAlone",
-    race_code == "B" ~ "BlackAlone",
-    race_code == "O" ~ "SomeOtherRaceAlone",
-    race_code == "U" ~ "Undesignated",
-    race_code == "I" ~ "AmericanIndianOrAlaskaNativeAlone",
-    race_code == "A" ~ "AsianAlone",
-    race_code == "M" ~ "TwoOrMoreRaces",
-    TRUE ~ "Undesignated")) %>%
-  ## one unmatched field (U)
-  mutate(Gender = case_when(
-    sex_code == "F" ~ "Female",
-    sex_code == "M" ~ "Male",
-    TRUE ~ "Unknown")) %>% 
-  dplyr::select(-age, -ethnic_code, -race_code, -sex_code) %>%
-  ## aggregate by county
-  group_by(Geography, party_cd, Age, Gender, Hispanic, Race) %>%
-  summarise(VoterFreq = sum(total_voters)) %>%
-  ungroup()
+census = load_census_df()
+voter_stats = load_voter_df()
 ```
-
 
 # Introduction
 Political campaigns analyze historical election data to understand how demographic
@@ -313,7 +258,6 @@ model_df = model_df %>%
 # saveRDS(model_df, file="model_df.RDS")
 ```
 
-
 ## Motivating a Multilevel Model 
 Voter data and population estimates are naturally grouped by geography,
 suggesting a multilevel model using the county of measurement. We are interested 
@@ -384,18 +328,11 @@ annotate_figure(plot, top = text_grob("Voter Registration Probability by Demogra
                                       ,face = "bold", size = 15))
 ```
 
-Under the current model it is impossible to determine the effect of party affiliation
-on registration probability as the Census does not collect political affiliation 
-with population estimates. This unknown quantity is latent for unregistered voters
-and needs to be imputed. As an initial estimate, the political affiliation for 
-unregistered citizens can be assigned from the original political affiliation of
-registered voters for each demographic grouping in each geography.
-
-```{r, categorical-correlation-matrix}
-corr_df = model_df %>% 
-  dplyr::select(Age, Gender, Hispanic, Race, PartyCd)
-compute_corr(corr_df)
-```
+Under the current model it is impossible to determine the effect of political 
+party on registration probability as the Census doesn't collect political 
+affiliation with population estimates and needs to be imputed. As an initial 
+estimate, political affiliation can be assigned to unregistered voters from the
+observed political distribution of registered voters in each demographic group.
 
 # Multilevel Models
 
@@ -601,16 +538,15 @@ m2 %>%
   xlab("Change in Log Odds")
 ```
 
-<!-- \newpage -->
 
 ## _Registration differences by age group for each party?_
-Using Model III we can look at the age effect within each political party from 
-random slope estimates assess the relative change in log odds from the baseline
-age (18-25). Figure 6 shows 95% CRs and point estimates. In almost all age categories
-republicans are more likely to register than other political parties. We also 
-see registration rate across all parties as age increases. 
+Random slope estimates from Model III are the registration effects for different 
+age groups relative to a baseline (18-25). Figure 6 shows 95% CRs and point
+estimates for different political parties and age groups. Across age categories 
+republicans are more likely to register than other political parties and registration
+rate tends to increase with age. 
 
-```{r, include=TRUE, fig.height=2.5, fig.cap="Random Slope Estimates (Model III) for Age across Political Party", fig.align='left'}
+```{r, include=TRUE, fig.height=2.2, fig.cap="Random Slope Estimates for Age across Political Party", fig.align='left'}
 m3 %>%
   spread_draws(r_PartyCd[PartyCd, Age]) %>%
   median_qi(est = r_PartyCd) %>%
@@ -627,14 +563,13 @@ m3 %>%
 ```
 
 ## Predictive Accuracy
-To assess model validity we can compare the predicted number of registrations
-to the true value from the out-of-sample counties. 70% of our data is held-out 
-and constitutes a test set. Figure 7 displays model predictions for each demographic
-group within one out-of-sample county and dashed lines denote average error. 
-Surprisingly, Model I has the best predictive performance, with average error 
+Comparing predicted voters to actual registrations using the out-of-sample data 
+can assess model validity. Figure 7 displays predictions for each demographic group 
+within one county and dashed lines denote average 
+error. Surprisingly, Model I has the best predictive performance, with average error 
 of roughly 10 individuals, but median error of less than one. 
 
-```{r, predictive-accuracy, include=TRUE, fig.height=3.75, fig.cap="Predictive Accuracy for One Unseen County Across All Demographic Groups"}
+```{r, predictive-accuracy, include=TRUE, fig.height=2.8, fig.cap="Predictive Accuracy across Demographic Groups"}
 ## select county from test set at random
 set.seed(777)
 cnty = (test_df %>% ungroup() %>% distinct(Geography) %>% sample_n(1))$Geography
@@ -644,27 +579,13 @@ pred_df = test_df %>% ungroup()%>% dplyr::filter(Geography == cnty) %>%
   dplyr::inner_join(test_df) %>%
   dplyr::select(Geography, Race, Hispanic, Gender, Age, Freq, VoterFreq, PartyCd, Affil_Freq)
 
-predictions = predict(m1, newdata = pred_df, allow_new_levels=TRUE)
-predictions2 = predict(m2, newdata = pred_df, allow_new_levels=TRUE)
-predictions3 = predict(m3, newdata = pred_df, allow_new_levels=TRUE)
-
-results1 = cbind(pred_df, predictions, Model = "Model I")
-results1$index = rownames(results1)
-results2 = cbind(pred_df, predictions2, Model = "Model II")
-results2$index = rownames(results2)
-results3 = cbind(pred_df, predictions3, Model = "Model III")
-results3$index = rownames(results3)
-results1$abs_diff = results1$VoterFreq - results1$Estimate
-results2$abs_diff = results2$VoterFreq - results2$Estimate
-results3$abs_diff = results3$VoterFreq - results3$Estimate
-
-results = rbind(results1, results2, results3)
+results = return_pred_df(pred_df, m1, m2, m3)
 
 ## display results
 ggplot(results, aes(x=index, y=abs_diff, color = Model)) +
   geom_point(alpha = 0.7, shape=1) +
   theme_minimal() +
-  ggtitle("Predictive Accuracy for One Test County") +
+  ggtitle("Predictive Accuracy for One County") +
   xlab("Demographic Group") + ylab("Error (Actual - Predicted)") +
   theme(legend.position="bottom",
         plot.title = element_text(hjust = 0.5),
@@ -677,55 +598,93 @@ ggplot(results, aes(x=index, y=abs_diff, color = Model)) +
              aes(yintercept = model_mean,col=Model), linetype="dashed")
 ```
 
-Table XX displays overall predictive performance for the training set and out-of-sample
-test set.
+Table 3 displays the overall predictive performance for the out-of-sample test set.
+The average absolute error denotes the difference, in number of individuals, between
+the model predictions and the observed number of registered voters. The median
+error is substantial less than the average and indicates some predictions are 
+significantly wrong.
 
-```{r, total-pred-accuracy, include=TRUE}
+```{r, total-pred-accuracy, include=TRUE, fig.height=1.4}
 ## overall predictions
+if(file.exists("./data/report_df/out_of_samp.RDS")){
+  out_of_samp = readRDS("./data/report_df/out_of_samp.RDS")
+}else{
+  out_of_samp = return_pred_df(test_df, m1, m2, m3)
+  saveRDS(out_of_samp, file="./data/report_df/out_of_samp.RDS")
+}
 
+## these are both are to discern bc of outliers
+## boxplot
+# ggplot(out_of_samp, aes(x=Model, y=(abs_diff))) + 
+#   geom_boxplot()
 
-# p = predict(m1) %>% 
-#   as_tibble() %>% bind_cols(model_df)
+## diff residual plot
+# ggplot(out_of_samp, aes(abs_diff, color=Model)) + 
+#   geom_density()
+##
+## table 1: error summaries
+tbl_df = out_of_samp %>% 
+  group_by(Model) %>% 
+  summarise(
+    avg_error = mean(abs(abs_diff)),
+    median_error = median(abs(abs_diff)),
+    ) %>%
+  dplyr::select(-Model)
 
-## for each model how many estimates fall inside the CR
-
-### overdispersion
-
+ggtexttable(round(tbl_df, 2), rows=c("Model I ", "Model II ", "Model III "), 
+        cols = c("Avg. Absolute Error", "Median Absolute Error"),
+                  theme=ttheme("classic", base_size = 9, padding=unit(c(5,5), "mm"))) %>%
+  tab_add_title(text = "Table 3: Prediction Summaries", size = 9, face = "plain",
+                padding=unit(c(1,0), "mm"))
 ```
 
+Table 4 shows the 95% credible region summaries for each model prediction. All
+models display substantially worse performance on the out-of-sample test set
+than the coverage level. Model I predictions also have dramatically wider intervals
+than other models.
 
-\newpage
+```{r, prediction-summary-table, include=TRUE, fig.height=1.4}
+## table 2: CI width summaries
+tbl_df = out_of_samp %>% 
+  group_by(Model) %>% 
+  summarise(
+    ## Confidence Interval Statistics
+    percent_CI_coverage = sum(within_region)/(nrow(out_of_samp)/3),
+    avg_CI_width = mean((Q97.5-Q2.5))) %>%
+  dplyr::select(-Model)
 
-# Limitations & Conclusion  
-Several limitations have been mentioned throughout and are summarized. First,
-we have concerns about the viability of the 2010 Census for population estimates
-in 2016 as some observations have more voter registrations than population estimates.
-A weighted sub-sampling strategy was introduced to minimize the statistical impact,
-but only addresses detectable observations where $registration \ > \ population$.
-A valid concern is that all demographic populations undergo some change over the
-six year period. A potential solution is to impute or average the demographic populations
-in 2016 using estimates from both the 2010 and 2020 Censuses.
+ggtexttable(round(tbl_df, 2), rows=c("Model I ", "Model II ", "Model III "), 
+        cols = c("Confidence Interval Coverage", "Avg. CI Width"),
+                  theme=ttheme("classic", base_size = 9, padding=unit(c(5,5), "mm"))) %>%
+  tab_add_title(text = "Table 4: Confidence Interval Summaries", size = 9, face = "plain",
+                padding=unit(c(1,0), "mm"))
+```
 
-Another limitation is from the sub-sampling strategy which limits our data usage
-to only $30\%$ of available counties and introduces additional variability. To 
-alleviate this, one could leverage the entire dataset by either acquiring more 
-computation power, letting models run for longer (most complex model takes 
-$\sim 12 \text{ hours}$ to run), adopt a bootstrap resampling procedure to run
-the model multiple times with different county combinations (also requires more 
-computation time), and/or specify simpler models with less random effects that 
-take less time to run.
+# Limitations & Conclusion
+Population estimates in 2016 are approximated from the 2010 Census which may 
+introduce unaccounted for variability if significant population changes occurred 
+over the six year period. There are multiple instances of "invalid" observations 
+with more registered voters than demographic population estimates, which should
+be impossible. To minimize variability a weighted sub-sample of 30 counties was 
+drawn for estimation, with weights inversely proportional to the fraction of 
+invalid observations. This addresses detectable differences, however, does not 
+account for the possibility that all population estimates differ over a six year 
+period. In the future, one could look to include 2020 Census estimates, when they
+become available in 2023, and impute more realistic population measures using 
+estimates from the 2010 and 2020 Census. The sub-sample also reduces the size of 
+the dataset, adding more variability, but required to reduce the MCMC sampling time
+which can still take over 12 hours on the reduced set. To alleviate variance 
+concerns in fixed effect estimates, one could leverage the entire dataset with a 
+bootstrap resampling procedure and run multiple models in parallel. An additional 
+limitation is the unknown population estimates for the political affiliation of 
+unregistered voters as the Census does not contain this information. These totals
+were imputed based on the party affiliations of registered voters within each 
+demographic category as a rough approximation, but introduces another source of error.
 
-An additional limitation is the unknown population estimates for political party 
-affiliations. The Census data only quantifies innate categories and does not contain
-information regarding party affiliation. These totals were imputed from available
-fields based on the party distribution from registered voters within each demographic
-group. This introduces another source of error, but is necessary if we want to 
-make inferences about party affiliation. 
-
-Lastly, the Gelman book indicates overdisperion is almost always a problem in 
-binomial regression models as there is no independent variance term. If overdispersion
-is present, our estimates will be overconfident. Time constraints prevented testing
-for overdispersion and applying an uncertainty adjustment to estimates.
+<!-- Lastly, the Gelman book indicates overdisperion is almost always a problem in  -->
+<!-- binomial regression models as there is no independent variance term. If overdispersion -->
+<!-- is present, our estimates will be overconfident. Time constraints prevented testing -->
+<!-- for overdispersion and applying an uncertainty adjustment to estimates. -->
 
 <!-- **Conclusion**   -->
 Historical voting records and Census population estimates were used to evaluate 
