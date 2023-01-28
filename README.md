@@ -1,6 +1,5 @@
 # Voter-Registration-in-North-Carolina
-This repository contains code used for the report [Who-VotesNC-Case-Study.pdf](Who-VotesNC-Case-Study.pdf), 
-which was initially completed as an assignment for a course at Duke.
+This repository contains code used for the report [NC-Voter-Case-Study.pdf](Who-VotesNC-Case-Study.pdf), 
 
 ## Abstract
 Political candidates are often interested in understanding factors influencing
